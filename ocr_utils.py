@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytesseract
 from pdf2image import convert_from_bytes
-from PIL import ImageFilter, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 # PDF → görüntü dönüşümünde kullanılacak çözünürlük (dpi)
 DPI = 300
@@ -56,6 +56,7 @@ GECERSIZ_KELIMELER = {
     "cwid", "ewid", "cwid:", "type", "old", "device", "devices",
     "delivered", "cause", "change", "imei", "imel", "inventory",
     "envanter", "kodu", "cihaz", "eski", "teslim", "form", "formu", "ve",
+    "web", "www", "http", "https",
 }
 
 # Bulunamayan isimler için kullanılacak yer tutucu
@@ -65,14 +66,26 @@ ISIM_BULUNAMADI = "isim_bulunamadi"
 def _on_isle(gorsel):
     """OCR öncesi görüntü iyileştirme.
 
-    Soluk/renkli kutulardaki yazıların okunabilmesi için: gri tona çevir,
-    kontrastı otomatik aç, hafif keskinleştir. Tesseract bu hâliyle düşük
-    kontrastlı alanları çok daha iyi okur.
+    Soluk/renkli kutulardaki küçük puntolu yazıların okunabilmesi için:
+    gri tona çevir, 2 kat büyüt, kontrastı otomatik aç, keskinleştir.
+    Tesseract bu hâliyle düşük kontrastlı/küçük yazıları çok daha iyi okur.
     """
     gorsel = gorsel.convert("L")  # gri ton
+    # 2x büyütme: küçük puntolu isimlerde harf tanıma doğruluğunu artırır
+    gorsel = gorsel.resize(
+        (gorsel.width * 2, gorsel.height * 2), Image.LANCZOS
+    )
     gorsel = ImageOps.autocontrast(gorsel, cutoff=2)  # kontrastı aç
     gorsel = gorsel.filter(ImageFilter.SHARPEN)  # keskinleştir
     return gorsel
+
+
+def _sayfalari_oku(sayfalar, config: str = "") -> str:
+    """Verilen sayfa görüntülerini OCR'dan geçirip birleşik metni döndürür."""
+    return "\n\n".join(
+        pytesseract.image_to_string(s, lang=OCR_DIL, config=config)
+        for s in sayfalar
+    )
 
 
 def metni_cikar(pdf_bytes: bytes, iyilestir: bool = False) -> str:
@@ -82,20 +95,15 @@ def metni_cikar(pdf_bytes: bytes, iyilestir: bool = False) -> str:
         pdf_bytes: Yüklenen PDF dosyasının ham baytları.
         iyilestir: True ise görüntü ön işlemden geçirilir ve tablo/kutu
             düzenini daha iyi çözen OCR modu (--psm 6) kullanılır.
-            İlk okumada isim bulunamayan belgeler için ikinci şanstır.
 
     Returns:
         Tüm sayfaların OCR metni (sayfalar arasında boş satır ile).
     """
     sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI)
-    metinler = []
-    config = "--psm 6" if iyilestir else ""
-    for sayfa in sayfalar:
-        if iyilestir:
-            sayfa = _on_isle(sayfa)
-        metin = pytesseract.image_to_string(sayfa, lang=OCR_DIL, config=config)
-        metinler.append(metin)
-    return "\n\n".join(metinler)
+    if iyilestir:
+        sayfalar = [_on_isle(s) for s in sayfalar]
+        return _sayfalari_oku(sayfalar, "--psm 6")
+    return _sayfalari_oku(sayfalar)
 
 
 def _adayi_temizle(metin: str) -> str:
@@ -138,6 +146,9 @@ def _isim_ayikla(aday: str) -> str | None:
         # Sondaki kısa ve TAMAMEN büyük harfli parçalar kod artığıdır
         # (kullanıcı kodu 'AK123C' -> 'AK' gibi); gerçek soyadlar daha uzun
         or (len(kelimeler[-1]) <= 3 and kelimeler[-1].isupper() and len(kelimeler) > 1)
+        # Küçük harfle başlayan kısa parçalar OCR gürültüsüdür ('ii', 'web'
+        # gibi) — gerçek isim/soyisim büyük harfle başlar
+        or (len(kelimeler[-1]) <= 3 and kelimeler[-1][0].islower() and len(kelimeler) > 1)
     ):
         kelimeler = kelimeler[:-1]
     if not kelimeler:
@@ -266,16 +277,21 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
     """
     try:
         # 1. deneme: normal OCR
-        ham_metin = metni_cikar(pdf_bytes)
+        sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI)
+        ham_metin = _sayfalari_oku(sayfalar)
         isim = ismi_bul(ham_metin)
 
-        # 2. deneme: isim bulunamadıysa görüntüyü iyileştirip tablo
-        # modunda (--psm 6) tekrar oku — soluk/kutulu alanlar için
+        # İsim bulunamadıysa: görüntüyü iyileştir (2x büyütme + kontrast)
+        # ve farklı OCR modlarını sırayla dene — soluk/kutulu alanlar için.
+        # --psm 6: tek düzgün metin bloğu, --psm 4: sütunlu/tablolu düzen
         if isim is None:
-            ham_metin2 = metni_cikar(pdf_bytes, iyilestir=True)
-            isim = ismi_bul(ham_metin2)
-            if isim is not None:
-                ham_metin = ham_metin2  # başarılı okumayı göster
+            iyi_sayfalar = [_on_isle(s) for s in sayfalar]
+            for config in ("--psm 6", "--psm 4"):
+                ham_metin2 = _sayfalari_oku(iyi_sayfalar, config)
+                isim = ismi_bul(ham_metin2)
+                if isim is not None:
+                    ham_metin = ham_metin2  # başarılı okumayı göster
+                    break
 
         return {"ham_metin": ham_metin, "isim": isim, "hata": None}
     except Exception as e:  # Bozuk bir belge tüm işlemi durdurmasın
