@@ -63,18 +63,23 @@ GECERSIZ_KELIMELER = {
 ISIM_BULUNAMADI = "isim_bulunamadi"
 
 
-def _on_isle(gorsel):
+def _on_isle(gorsel, buyut: float = 1.0):
     """OCR öncesi görüntü iyileştirme.
 
-    Soluk/renkli kutulardaki küçük puntolu yazıların okunabilmesi için:
-    gri tona çevir, 2 kat büyüt, kontrastı otomatik aç, keskinleştir.
-    Tesseract bu hâliyle düşük kontrastlı/küçük yazıları çok daha iyi okur.
+    Soluk/renkli kutulardaki yazıların okunabilmesi için: gri tona çevir,
+    (isteğe bağlı) büyüt, kontrastı otomatik aç, keskinleştir.
+
+    Args:
+        buyut: Büyütme oranı. 1.0 = büyütme yok. Büyütme bazı belgelerde
+            yardımcı, bazılarında zararlı olabildiği için varyant olarak
+            denenir.
     """
     gorsel = gorsel.convert("L")  # gri ton
-    # 2x büyütme: küçük puntolu isimlerde harf tanıma doğruluğunu artırır
-    gorsel = gorsel.resize(
-        (gorsel.width * 2, gorsel.height * 2), Image.LANCZOS
-    )
+    if buyut != 1.0:
+        gorsel = gorsel.resize(
+            (int(gorsel.width * buyut), int(gorsel.height * buyut)),
+            Image.LANCZOS,
+        )
     gorsel = ImageOps.autocontrast(gorsel, cutoff=2)  # kontrastı aç
     gorsel = gorsel.filter(ImageFilter.SHARPEN)  # keskinleştir
     return gorsel
@@ -281,15 +286,23 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
         ham_metin = _sayfalari_oku(sayfalar)
         isim = ismi_bul(ham_metin)
 
-        # İsim bulunamadıysa: görüntüyü iyileştir (2x büyütme + kontrast)
-        # ve farklı OCR modlarını sırayla dene — soluk/kutulu alanlar için.
-        # --psm 6: tek düzgün metin bloğu, --psm 4: sütunlu/tablolu düzen
+        # İsim bulunamadıysa: farklı iyileştirme + OCR modu varyantlarını
+        # sırayla dene. Büyütme bazı belgede yardımcı, bazısında zararlı
+        # olduğu için önce büyütmesiz (en güvenli), sonra büyütmeli denenir.
+        # (buyut_orani, psm_modu) çiftleri:
         if isim is None:
-            iyi_sayfalar = [_on_isle(s) for s in sayfalar]
-            for config in ("--psm 6", "--psm 4"):
+            varyantlar = [
+                (1.0, "--psm 6"),   # büyütmesiz, tek metin bloğu
+                (1.0, "--psm 4"),   # büyütmesiz, sütunlu düzen
+                (2.0, "--psm 6"),   # 2x büyütme, tek metin bloğu
+                (1.5, "--psm 4"),   # 1.5x büyütme, sütunlu düzen
+            ]
+            for buyut, config in varyantlar:
+                iyi_sayfalar = [_on_isle(s, buyut) for s in sayfalar]
                 ham_metin2 = _sayfalari_oku(iyi_sayfalar, config)
-                isim = ismi_bul(ham_metin2)
-                if isim is not None:
+                bulunan = ismi_bul(ham_metin2)
+                if bulunan is not None:
+                    isim = bulunan
                     ham_metin = ham_metin2  # başarılı okumayı göster
                     break
 
