@@ -66,6 +66,28 @@ GECERSIZ_KELIMELER = {
 # Bulunamayan isimler için kullanılacak yer tutucu
 ISIM_BULUNAMADI = "isim_bulunamadi"
 
+# Belge türüne göre dosya adının sonuna eklenecek kodlar.
+# Sıra önemlidir: ilk eşleşen kazanır.
+# \b (tam kelime sınırı) ile 'Delivery', gövdedeki 'Delivered' kelimesine
+# YANLIŞLIKLA eşleşmez.
+BELGE_KODLARI = [
+    (r"\bMobile\b", "M"),
+    (r"\bPick\s*-?\s*up\b", "P"),
+    (r"\bDelivery\b", "D"),
+    (r"[İIı]T\s+Ekipman\s+Formu", "IT"),
+]
+
+
+def belge_kodu(metin: str) -> str | None:
+    """OCR metnine göre belge türü kodunu döndürür (M/P/D/IT); yoksa None.
+
+    Dosya adının sonuna '_<kod>' olarak eklenmek üzere kullanılır.
+    """
+    for desen, kod in BELGE_KODLARI:
+        if re.search(desen, metin, flags=re.IGNORECASE):
+            return kod
+    return None
+
 
 def _on_isle(gorsel, buyut: float = 1.0, ikili: bool = False):
     """OCR öncesi görüntü iyileştirme.
@@ -287,7 +309,9 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
     """Tek bir PDF için tüm OCR akışını çalıştırır.
 
     Returns:
-        {"ham_metin": str, "isim": str | None, "hata": str | None}
+        {"ham_metin": str, "isim": str | None, "kod": str | None,
+         "hata": str | None}
+        kod: belge türü soneki (M/P/D/IT) veya None.
     """
     try:
         # 1. deneme: normal OCR
@@ -320,6 +344,9 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
                     ham_metin = ham_metin2  # başarılı okumayı göster
                     break
 
-        return {"ham_metin": ham_metin, "isim": isim, "hata": None}
+        # Belge türü kodunu (M/P/D/IT) çıkarılan metinden belirle
+        kod = belge_kodu(ham_metin)
+
+        return {"ham_metin": ham_metin, "isim": isim, "kod": kod, "hata": None}
     except Exception as e:  # Bozuk bir belge tüm işlemi durdurmasın
-        return {"ham_metin": "", "isim": None, "hata": str(e)}
+        return {"ham_metin": "", "isim": None, "kod": None, "hata": str(e)}

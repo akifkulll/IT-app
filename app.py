@@ -60,6 +60,7 @@ if dosyalar and st.button("🔍 OCR Başlat", type="primary"):
                 "pdf_bytes": pdf_bytes,
                 "ham_metin": sonuc["ham_metin"],
                 "isim": sonuc["isim"],
+                "kod": sonuc["kod"],
                 "hata": sonuc["hata"],
             }
         )
@@ -95,18 +96,28 @@ if sonuclar:
             {
                 "Orijinal Dosya": s["orijinal_ad"],
                 "Çıkarılan İsim": s["isim"] if s["isim"] else ISIM_BULUNAMADI,
+                "Tür": s["kod"] if s["kod"] else "",
             }
             for s in sonuclar
         ]
     )
 
     st.subheader("2️⃣ İsimleri Düzenle (kaydetmeden önce)")
+    st.caption(
+        "Tür sütunu belge türü kodudur: **M**=Mobile, **P**=Pickup, "
+        "**D**=Delivery, **IT**=IT Ekipman Formu. Dosya adının sonuna "
+        "`_<Tür>` olarak eklenir. Boş bırakılırsa sonek eklenmez."
+    )
     duzenlenmis = st.data_editor(
         tablo,
         column_config={
             "Orijinal Dosya": st.column_config.TextColumn(disabled=True),
             "Çıkarılan İsim": st.column_config.TextColumn(
                 help="Dosya bu isimle kaydedilecek. Elle düzeltebilirsiniz."
+            ),
+            "Tür": st.column_config.TextColumn(
+                help="Belge türü kodu (M/P/D/IT). Elle düzeltebilirsiniz.",
+                width="small",
             ),
         },
         hide_index=True,
@@ -129,6 +140,10 @@ if sonuclar:
                     raise RuntimeError(f"OCR hatası: {s['hata']}")
 
                 guvenli = temiz_isim(girilen_isim)
+                # Belge türü kodunu (M/P/D/IT) ismin sonuna ekle
+                girilen_kod = str(satir["Tür"]).strip()
+                if girilen_kod:
+                    guvenli = f"{guvenli}_{girilen_kod}"
                 dosya_adi = benzersiz_ad(guvenli, kullanilanlar)
                 yol = kaydet(s["pdf_bytes"], dosya_adi)
 
