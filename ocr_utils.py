@@ -5,6 +5,7 @@ ocr_utils.py — Taranmış PDF'lerden OCR ile isim çıkarma yardımcı fonksiy
 Tüm işlem tamamen offline çalışır (Tesseract + Poppler), bulut OCR kullanılmaz.
 """
 
+import difflib
 import io
 import re
 import unicodedata
@@ -66,39 +67,67 @@ GECERSIZ_KELIMELER = {
 # Bulunamayan isimler için kullanılacak yer tutucu
 ISIM_BULUNAMADI = "isim_bulunamadi"
 
-# Belge türüne göre dosya adının sonuna eklenecek kodlar.
-# Sıra önemlidir: ilk eşleşen kazanır.
+# Belge türü, başlıktaki anahtar kelimeye göre belirlenir. OCR (özellikle
+# Türkçe modda) başlığı bozabildiği için TAM değil, BENZERLİK (fuzzy)
+# eşleşmesi kullanılır: "Pickup" -> "Pikupı", "Mobile" -> "Mobıle" gibi
+# okumalar da yakalanır.
 #
-# Notlar:
-# - \b (tam kelime sınırı) ile 'Delivery', gövdedeki 'Delivered' kelimesine
-#   yanlışlıkla eşleşmez.
-# - 'Delivery' için (?!\s*Form) ile, IT formunun BAŞLIĞINDAKİ
-#   "... Equipment Delivery Form" ifadesi D tetiklemez; yalnızca tür
-#   alanındaki gerçek "Delivery" değeri D verir.
-# - IT formu başlığı ('IT Ekipman ... / IT Equipment Delivery Form') hem
-#   Türkçe hem İngilizce yazımıyla ve OCR'ın 'IT' okuma hatalarından
-#   bağımsız olarak 'Ekipman Teslim' / 'Equipment Delivery' üzerinden
-#   yakalanır.
-# Pickup deseni, Türkçe OCR (lang=tur) yüzünden oluşan yazım
-# kaymalarına dayanıklı: i<->ı, c<->ç, k<->l, u<->ü karışabilir.
-# Örn: Pickup, Pick up, Pick-up, Pıckup, Piçkup, Picküp, Piclup...
-PICKUP_DESENI = r"\bP[iı][cçk][cçkl]?\s*-?\s*[uü]p\b"
-
-BELGE_KODLARI = [
-    (r"\bMobile\b", "M"),
-    (PICKUP_DESENI, "P"),
-    (r"Ekipman\s+Teslim|Equipment\s+Delivery|[İIı1l]T\s+Ekipman|[İIı1l]T\s+Equipment", "IT"),
-    (r"(?<!Equipment )\bDelivery\b", "D"),
+# (anahtar_kelime, kod, eşik) — eşik: 0-1 arası gereken benzerlik oranı.
+# Sıra önemlidir: ilk eşleşen kazanır. IT (equipment/ekipman) 'Delivery'den
+# ÖNCE gelir; böylece "IT Equipment Delivery Form" başlığı D değil IT verir.
+# 'delivery' eşiği yüksek tutulur ki gövdedeki "delivered" ile karışmasın.
+ANAHTAR_KODLARI = [
+    ("mobile", "M", 0.80),
+    ("pickup", "P", 0.78),
+    ("equipment", "IT", 0.80),
+    ("ekipman", "IT", 0.80),
+    ("delivery", "D", 0.85),
 ]
+
+# Türkçe karakterleri sadeleştirme (OCR/dil kaymalarını eşitlemek için)
+_TR_HARITA = str.maketrans(
+    {
+        "ı": "i", "İ": "i", "ç": "c", "Ç": "c", "ş": "s", "Ş": "s",
+        "ğ": "g", "Ğ": "g", "ö": "o", "Ö": "o", "ü": "u", "Ü": "u",
+    }
+)
+
+# Başlık bölgesi: türü belirlemek için metnin ilk kaç dolu satırına
+# bakılacağı. Başlıklar en üsttedir; gövdedeki "Old Device Delivered"
+# gibi kelimeler bu sayede kapsam dışında kalır.
+BASLIK_SATIR_SAYISI = 5
+
+
+def _sadelestir(metin: str) -> str:
+    """Türkçe karakterleri sadeleştirip küçük harfe çevirir."""
+    return metin.translate(_TR_HARITA).lower()
 
 
 def belge_kodu(metin: str) -> str | None:
     """OCR metnine göre belge türü kodunu döndürür (M/P/D/IT); yoksa None.
 
-    Dosya adının sonuna '_<kod>' olarak eklenmek üzere kullanılır.
+    Başlık bölgesindeki kelimeleri anahtar kelimelerle BENZERLİK oranına
+    göre karşılaştırır (OCR bozulmalarına dayanıklı). Dosya adının sonuna
+    '_<kod>' olarak eklenmek üzere kullanılır.
     """
-    for desen, kod in BELGE_KODLARI:
-        if re.search(desen, metin, flags=re.IGNORECASE):
+    # Yalnızca başlık bölgesi (ilk birkaç dolu satır)
+    dolu_satirlar = [s for s in metin.splitlines() if s.strip()]
+    baslik = " ".join(dolu_satirlar[:BASLIK_SATIR_SAYISI])
+
+    # Başlığı sadeleştirip harf gruplarına ayır
+    sade = _sadelestir(baslik)
+    kelimeler = re.findall(r"[a-z]+", sade)
+    # "Pick up" gibi bölünmüş yazımlar için bitişik halini de hazırla
+    bitisik = "".join(kelimeler)
+
+    for anahtar, kod, esik in ANAHTAR_KODLARI:
+        # 1) Tek tek kelimelerde benzerlik ara
+        for kelime in kelimeler:
+            oran = difflib.SequenceMatcher(None, kelime, anahtar).ratio()
+            if oran >= esik:
+                return kod
+        # 2) Bitişik metinde anahtar birebir geçiyorsa (Pick up -> pickup)
+        if anahtar in bitisik:
             return kod
     return None
 
