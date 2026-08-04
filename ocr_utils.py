@@ -17,6 +17,10 @@ from PIL import Image, ImageFilter, ImageOps
 # PDF → görüntü dönüşümünde kullanılacak çözünürlük (dpi)
 DPI = 300
 
+# İkinci OCR turunda kullanılan yüksek çözünürlük — harf netliğini
+# artırıp "semet" gibi karışan okumaları düzeltmeye yardımcı olur
+DPI_YUKSEK = 400
+
 # Tesseract için Türkçe dil paketi
 OCR_DIL = "tur"
 
@@ -63,16 +67,18 @@ GECERSIZ_KELIMELER = {
 ISIM_BULUNAMADI = "isim_bulunamadi"
 
 
-def _on_isle(gorsel, buyut: float = 1.0):
+def _on_isle(gorsel, buyut: float = 1.0, ikili: bool = False):
     """OCR öncesi görüntü iyileştirme.
 
     Soluk/renkli kutulardaki yazıların okunabilmesi için: gri tona çevir,
-    (isteğe bağlı) büyüt, kontrastı otomatik aç, keskinleştir.
+    (isteğe bağlı) büyüt, kontrastı aç, keskinleştir; istenirse siyah-beyaz
+    eşikleme (binarizasyon) uygula.
 
     Args:
-        buyut: Büyütme oranı. 1.0 = büyütme yok. Büyütme bazı belgelerde
-            yardımcı, bazılarında zararlı olabildiği için varyant olarak
-            denenir.
+        buyut: Büyütme oranı. 1.0 = büyütme yok.
+        ikili: True ise görüntü siyah-beyaza eşiklenir. Basılı yazıda
+            harf kenarlarını netleştirip karışan harfleri ('semet' gibi)
+            düzeltebilir.
     """
     gorsel = gorsel.convert("L")  # gri ton
     if buyut != 1.0:
@@ -81,6 +87,9 @@ def _on_isle(gorsel, buyut: float = 1.0):
             Image.LANCZOS,
         )
     gorsel = ImageOps.autocontrast(gorsel, cutoff=2)  # kontrastı aç
+    if ikili:
+        # 150 eşiği: bu değerin altı siyah (yazı), üstü beyaz (zemin)
+        gorsel = gorsel.point(lambda p: 0 if p < 150 else 255, mode="L")
     gorsel = gorsel.filter(ImageFilter.SHARPEN)  # keskinleştir
     return gorsel
 
@@ -286,19 +295,24 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
         ham_metin = _sayfalari_oku(sayfalar)
         isim = ismi_bul(ham_metin)
 
-        # İsim bulunamadıysa: farklı iyileştirme + OCR modu varyantlarını
-        # sırayla dene. Büyütme bazı belgede yardımcı, bazısında zararlı
-        # olduğu için önce büyütmesiz (en güvenli), sonra büyütmeli denenir.
-        # (buyut_orani, psm_modu) çiftleri:
+        # İsim bulunamadıysa: sayfayı daha yüksek çözünürlükte (400 dpi)
+        # yeniden render edip çeşitli iyileştirme + OCR modu varyantlarını
+        # dener. Harf netliği için binarizasyonlu varyantlar başta tutulur;
+        # ilk isim bulan varyant kazanır.
+        # (buyut_orani, binarize, psm_modu):
         if isim is None:
+            yuksek_sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI_YUKSEK)
             varyantlar = [
-                (1.0, "--psm 6"),   # büyütmesiz, tek metin bloğu
-                (1.0, "--psm 4"),   # büyütmesiz, sütunlu düzen
-                (2.0, "--psm 6"),   # 2x büyütme, tek metin bloğu
-                (1.5, "--psm 4"),   # 1.5x büyütme, sütunlu düzen
+                (1.0, True, "--psm 6"),    # binarize + tek metin bloğu
+                (1.5, True, "--psm 6"),    # 1.5x + binarize
+                (1.0, False, "--psm 6"),   # binarizesiz (güvenli geri dönüş)
+                (1.0, False, "--psm 4"),   # sütunlu düzen
+                (2.0, False, "--psm 6"),   # 2x büyütme
             ]
-            for buyut, config in varyantlar:
-                iyi_sayfalar = [_on_isle(s, buyut) for s in sayfalar]
+            for buyut, ikili, config in varyantlar:
+                iyi_sayfalar = [
+                    _on_isle(s, buyut, ikili) for s in yuksek_sayfalar
+                ]
                 ham_metin2 = _sayfalari_oku(iyi_sayfalar, config)
                 bulunan = ismi_bul(ham_metin2)
                 if bulunan is not None:
