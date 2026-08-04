@@ -20,8 +20,15 @@ DPI = 300
 OCR_DIL = "tur"
 
 # İsim alanını yakalamak için denenecek etiket varyasyonları.
-# Etiketten sonra ":" veya boşluk gelebilir; isim aynı satırda aranır.
+# Sıra önemlidir: en güvenilir/özel etiketler başta aranır.
+# Etiketten sonra ":" veya boşluk gelebilir; isim aynı satırda ya da
+# (aynı satırda yoksa) bir alt satırda aranır.
 ISIM_ETIKETLERI = [
+    r"Kullanıcı\s*Adı",
+    r"Kullanıcı",
+    r"Kullanici",
+    r"User\s*Name",
+    r"User",
     r"Adı\s*Soyadı",
     r"Ad[ıi]\s*[-/]?\s*Soyad[ıi]",
     r"Ad\s*Soyad",
@@ -29,6 +36,16 @@ ISIM_ETIKETLERI = [
     r"Isim",
     r"Name",
 ]
+
+# Kişi ismi OLMAYAN, form başlıklarında/alan adlarında geçen kelimeler.
+# Yakalanan aday yalnızca bu kelimelerden oluşuyorsa geçersiz sayılır;
+# böylece "Model Serial Number" gibi başlıklar isim olarak alınmaz.
+GECERSIZ_KELIMELER = {
+    "model", "serial", "number", "seri", "numara", "no", "sn",
+    "name", "user", "kullanıcı", "kullanici", "adı", "ad", "soyad",
+    "soyadı", "isim", "tarih", "date", "departman", "department",
+    "unvan", "title", "id", "tc", "kimlik", "telefon", "phone", "email",
+}
 
 # Bulunamayan isimler için kullanılacak yer tutucu
 ISIM_BULUNAMADI = "isim_bulunamadi"
@@ -51,23 +68,63 @@ def metni_cikar(pdf_bytes: bytes) -> str:
     return "\n\n".join(metinler)
 
 
+def _adayi_temizle(metin: str) -> str:
+    """Ham bir metin parçasından isim adayını ayıklar.
+
+    Sadece harf, boşluk ve tire bırakır; fazla boşlukları teker.
+    """
+    metin = re.sub(r"[^A-Za-zÇĞİÖŞÜçğıöşü\s\-]", " ", metin)
+    metin = re.sub(r"\s+", " ", metin).strip()
+    return metin
+
+
+def _gecerli_isim(aday: str) -> bool:
+    """Adayın gerçek bir kişi ismi olup olmadığını kontrol eder.
+
+    - En az 2 karakter olmalı.
+    - Yalnızca form başlık kelimelerinden (GECERSIZ_KELIMELER) oluşmamalı;
+      en az bir "isim gibi" kelime içermeli.
+    """
+    if len(aday) < 2:
+        return False
+    kelimeler = aday.lower().split()
+    if not kelimeler:
+        return False
+    # Aday tamamen başlık kelimelerinden oluşuyorsa (ör. "Model Serial Number")
+    # geçersiz say.
+    return any(
+        k not in GECERSIZ_KELIMELER and len(k) >= 2 for k in kelimeler
+    )
+
+
 def ismi_bul(metin: str) -> str | None:
     """OCR metninde isim alanını etiket varyasyonlarıyla arar.
 
-    Etiket satırındaki isim kısmını döndürür; bulamazsa None döner.
+    Her etiket için önce aynı satırda etiketten sonra gelen kısma bakar;
+    orada geçerli bir isim yoksa (boş ya da başlık kelimesi) ilk dolu alt
+    satırı dener. Bulamazsa None döner.
     """
+    satirlar = metin.splitlines()
     for etiket in ISIM_ETIKETLERI:
-        # Etiket + isteğe bağlı ":" / "=" + aynı satırdaki isim
-        desen = rf"{etiket}\s*[:=\-]?\s*(?P<isim>[^\n\r]+)"
-        eslesme = re.search(desen, metin, flags=re.IGNORECASE)
-        if eslesme:
-            aday = eslesme.group("isim").strip()
-            # OCR gürültüsünü ayıkla: sadece harf, boşluk ve tire bırak
-            aday = re.sub(r"[^A-Za-zÇĞİÖŞÜçğıöşü\s\-]", " ", aday)
-            aday = re.sub(r"\s+", " ", aday).strip()
-            # Çok kısa veya boş sonuçları geçersiz say
-            if len(aday) >= 2:
+        # Etiket + isteğe bağlı ":" / "=" / "-" + satırın kalanı
+        desen = re.compile(rf"{etiket}\s*[:=\-]?\s*(?P<isim>.*)", flags=re.IGNORECASE)
+        for i, satir in enumerate(satirlar):
+            eslesme = desen.search(satir)
+            if not eslesme:
+                continue
+
+            # 1) Aynı satırda etiketten sonra gelen kısım
+            aday = _adayi_temizle(eslesme.group("isim"))
+            if _gecerli_isim(aday):
                 return aday
+
+            # 2) Aynı satır boş ya da başlık ise, ilk DOLU alt satıra bak
+            for sonraki in satirlar[i + 1:]:
+                aday2 = _adayi_temizle(sonraki)
+                if not aday2:
+                    continue  # boş satırları atla
+                # İlk dolu satır geçerli isimse döndür; değilse bu etiketten vazgeç
+                return aday2 if _gecerli_isim(aday2) else None
     return None
 
 
