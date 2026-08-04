@@ -24,17 +24,20 @@ OCR_DIL = "tur"
 # Etiketten sonra ":" veya boşluk gelebilir; isim aynı satırda ya da
 # (aynı satırda yoksa) bir alt satırda aranır.
 ISIM_ETIKETLERI = [
-    r"Kullanıcı\s*Adı",
-    r"Kullanıcı",
-    r"Kullanici",
-    r"User\s*Name",
-    r"User",
+    # Önce tam ad-soyad etiketleri (en güvenilir alanlar)
     r"Adı\s*Soyadı",
     r"Ad[ıi]\s*[-/]?\s*Soyad[ıi]",
     r"Ad\s*Soyad",
     r"İsim\s*[-/]?\s*Soyisim",
     r"Isim\s*[-/]?\s*Soyisim",
     r"Name\s*[-/]?\s*Surname",
+    # Sonra kullanıcı etiketleri
+    r"Kullanıcı\s*Adı",
+    r"Kullanıcı",
+    r"Kullanici",
+    r"User\s*Name",
+    r"User",
+    # En sona en genel etiketler
     r"İsim",
     r"Isim",
     r"Name",
@@ -48,7 +51,10 @@ GECERSIZ_KELIMELER = {
     "name", "surname", "user", "kullanıcı", "kullanici", "adı", "ad",
     "soyad", "soyadı", "soyisim", "isim", "tarih", "date", "departman", "department",
     "unvan", "title", "id", "tc", "kimlik", "telefon", "phone", "email",
-    "cwid",
+    # IT teslim formlarındaki alan adları ve OCR bozulmaları
+    "cwid", "ewid", "cwid:", "type", "old", "device", "devices",
+    "delivered", "cause", "change", "imei", "imel", "inventory",
+    "envanter", "kodu", "cihaz", "eski", "teslim", "form", "formu", "ve",
 }
 
 # Bulunamayan isimler için kullanılacak yer tutucu
@@ -85,7 +91,7 @@ def _adayi_temizle(metin: str) -> str:
 # Etiketin altında isim ararken en fazla kaç DOLU satıra bakılacağı.
 # Kutulu formlarda OCR, etiketle kutudaki değerin arasına çizgi/başlık
 # satırları sokabildiği için 1 satır yetmiyor.
-ALT_SATIR_LIMITI = 4
+ALT_SATIR_LIMITI = 6
 
 
 def _isim_ayikla(aday: str) -> str | None:
@@ -107,7 +113,11 @@ def _isim_ayikla(aday: str) -> str | None:
     ):
         kelimeler = kelimeler[1:]
     while kelimeler and (
-        kelimeler[-1].lower() in GECERSIZ_KELIMELER or len(kelimeler[-1]) < 2
+        kelimeler[-1].lower() in GECERSIZ_KELIMELER
+        or len(kelimeler[-1]) < 2
+        # Sondaki kısa ve TAMAMEN büyük harfli parçalar kod artığıdır
+        # (kullanıcı kodu 'AK123C' -> 'AK' gibi); gerçek soyadlar daha uzun
+        or (len(kelimeler[-1]) <= 3 and kelimeler[-1].isupper() and len(kelimeler) > 1)
     ):
         kelimeler = kelimeler[:-1]
     if not kelimeler:
