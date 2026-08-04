@@ -79,9 +79,14 @@ ISIM_BULUNAMADI = "isim_bulunamadi"
 #   Türkçe hem İngilizce yazımıyla ve OCR'ın 'IT' okuma hatalarından
 #   bağımsız olarak 'Ekipman Teslim' / 'Equipment Delivery' üzerinden
 #   yakalanır.
+# Pickup deseni, Türkçe OCR (lang=tur) yüzünden oluşan yazım
+# kaymalarına dayanıklı: i<->ı, c<->ç, k<->l, u<->ü karışabilir.
+# Örn: Pickup, Pick up, Pick-up, Pıckup, Piçkup, Picküp, Piclup...
+PICKUP_DESENI = r"\bP[iı][cçk][cçkl]?\s*-?\s*[uü]p\b"
+
 BELGE_KODLARI = [
     (r"\bMobile\b", "M"),
-    (r"\bPick\s*-?\s*up\b", "P"),
+    (PICKUP_DESENI, "P"),
     (r"Ekipman\s+Teslim|Equipment\s+Delivery|[İIı1l]T\s+Ekipman|[İIı1l]T\s+Equipment", "IT"),
     (r"(?<!Equipment )\bDelivery\b", "D"),
 ]
