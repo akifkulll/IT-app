@@ -1,21 +1,37 @@
 @echo off
-REM Windows başlatıcı: bu dosyaya ÇİFT TIKLAYINCA uygulamayı açar.
+REM ============================================================
+REM  Windows baslatici: bu dosyaya CIFT TIKLAYINCA uygulamayi acar.
+REM ============================================================
 
-REM Bu dosyanın bulunduğu klasöre geç
+REM Bu dosyanin bulundugu klasore gec
 cd /d "%~dp0"
 
 echo ==============================================
 echo  PDF Isim Cikarma - Uygulama baslatiliyor...
 echo ==============================================
+echo.
 
-REM Streamlit kurulu degilse bagimliliklari yukle
-where streamlit >nul 2>nul
+REM Python var mi kontrol et
+python --version >nul 2>nul
 if errorlevel 1 (
-    echo Streamlit bulunamadi. Bagimliliklar yukleniyor...
-    pip install -r requirements.txt
+    echo [HATA] Python bulunamadi.
+    echo Lutfen python.org adresinden Python kurun
+    echo ve kurulumda "Add Python to PATH" kutusunu isaretleyin.
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Streamlit kurulu mu kontrol et; degilse bagimliliklari yukle
+python -m streamlit --version >nul 2>nul
+if errorlevel 1 (
+    echo Bagimliliklar yukleniyor (ilk kurulum, biraz surebilir)...
+    python -m pip install -r requirements.txt
+    echo.
 )
 
 REM Uygulamayi baslat (tarayici otomatik acilir)
-streamlit run app.py
+REM  'python -m streamlit', 'streamlit' komutu PATH'te olmasa da calisir
+python -m streamlit run app.py
 
 pause
