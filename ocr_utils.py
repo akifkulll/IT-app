@@ -81,31 +81,53 @@ def _adayi_temizle(metin: str) -> str:
     return metin
 
 
-def _gecerli_isim(aday: str) -> bool:
-    """Adayın gerçek bir kişi ismi olup olmadığını kontrol eder.
+# Etiketin altında isim ararken en fazla kaç DOLU satıra bakılacağı.
+# Kutulu formlarda OCR, etiketle kutudaki değerin arasına çizgi/başlık
+# satırları sokabildiği için 1 satır yetmiyor.
+ALT_SATIR_LIMITI = 4
 
-    - En az 2 karakter olmalı.
-    - Yalnızca form başlık kelimelerinden (GECERSIZ_KELIMELER) oluşmamalı;
-      en az bir "isim gibi" kelime içermeli.
+
+def _isim_ayikla(aday: str) -> str | None:
+    """Adaydan geçerli kişi ismini ayıklar; yoksa None döner.
+
+    - Baştaki başlık/etiket kelimelerini ("Name", "Surname", "İsim"...)
+      atar: "Name Surname Ahmet Yılmaz" -> "Ahmet Yılmaz".
+    - Kalan kelimelerin tamamı başlık kelimesiyse ya da makul bir isim
+      uzunluğunda değilse (1-5 kelime) geçersiz sayar.
     """
-    if len(aday) < 2:
-        return False
-    kelimeler = aday.lower().split()
+    # Hiç harf içermeyen parçaları at (kutu çizgileri: '----', '__' vb.)
+    kelimeler = [
+        k for k in aday.split()
+        if re.search(r"[A-Za-zÇĞİÖŞÜçğıöşü]", k)
+    ]
+    # Baştaki ve sondaki başlık kelimelerini / tek harfli artıkları soy
+    while kelimeler and (
+        kelimeler[0].lower() in GECERSIZ_KELIMELER or len(kelimeler[0]) < 2
+    ):
+        kelimeler = kelimeler[1:]
+    while kelimeler and (
+        kelimeler[-1].lower() in GECERSIZ_KELIMELER or len(kelimeler[-1]) < 2
+    ):
+        kelimeler = kelimeler[:-1]
     if not kelimeler:
-        return False
-    # Aday tamamen başlık kelimelerinden oluşuyorsa (ör. "Model Serial Number")
-    # geçersiz say.
-    return any(
-        k not in GECERSIZ_KELIMELER and len(k) >= 2 for k in kelimeler
-    )
+        return None
+    # Kalan kısımda hâlâ başlık kelimesi varsa bu bir isim değil, başlıktır
+    if any(k.lower() in GECERSIZ_KELIMELER for k in kelimeler):
+        return None
+    # Makul isim uzunluğu: 1-5 kelime (paragraf/serbest metin yakalamayalım)
+    if len(kelimeler) > 5:
+        return None
+    isim = " ".join(kelimeler)
+    return isim if len(isim) >= 2 else None
 
 
 def ismi_bul(metin: str) -> str | None:
     """OCR metninde isim alanını etiket varyasyonlarıyla arar.
 
     Her etiket için önce aynı satırda etiketten sonra gelen kısma bakar;
-    orada geçerli bir isim yoksa (boş ya da başlık kelimesi) ilk dolu alt
-    satırı dener. Bulamazsa None döner.
+    orada geçerli bir isim yoksa (boş ya da başlık kelimesi) altındaki
+    birkaç dolu satırı dener — kutulu formlarda OCR ismi etiketten birkaç
+    satır sonraya yazabilir. Bulamazsa None döner.
     """
     satirlar = metin.splitlines()
     for etiket in ISIM_ETIKETLERI:
@@ -117,20 +139,22 @@ def ismi_bul(metin: str) -> str | None:
                 continue
 
             # 1) Aynı satırda etiketten sonra gelen kısım
-            aday = _adayi_temizle(eslesme.group("isim"))
-            if _gecerli_isim(aday):
-                return aday
+            isim = _isim_ayikla(_adayi_temizle(eslesme.group("isim")))
+            if isim:
+                return isim
 
-            # 2) Aynı satır boş ya da başlık ise, ilk DOLU alt satıra bak
+            # 2) Etiketin altındaki birkaç dolu satıra bak (kutu içi değer)
+            bakilan = 0
             for sonraki in satirlar[i + 1:]:
-                aday2 = _adayi_temizle(sonraki)
-                if not aday2:
+                aday = _adayi_temizle(sonraki)
+                if not aday:
                     continue  # boş satırları atla
-                if _gecerli_isim(aday2):
-                    return aday2
-                # İlk dolu alt satır isim değilse bu eşleşmeden vazgeç,
-                # ama diğer etiketleri/eşleşmeleri denemeye devam et.
-                break
+                isim = _isim_ayikla(aday)
+                if isim:
+                    return isim
+                bakilan += 1
+                if bakilan >= ALT_SATIR_LIMITI:
+                    break  # bu eşleşmeden vazgeç, diğerlerini dene
     return None
 
 
