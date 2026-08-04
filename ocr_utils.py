@@ -32,6 +32,9 @@ ISIM_ETIKETLERI = [
     r"Adı\s*Soyadı",
     r"Ad[ıi]\s*[-/]?\s*Soyad[ıi]",
     r"Ad\s*Soyad",
+    r"İsim\s*[-/]?\s*Soyisim",
+    r"Isim\s*[-/]?\s*Soyisim",
+    r"Name\s*[-/]?\s*Surname",
     r"İsim",
     r"Isim",
     r"Name",
@@ -42,8 +45,8 @@ ISIM_ETIKETLERI = [
 # böylece "Model Serial Number" gibi başlıklar isim olarak alınmaz.
 GECERSIZ_KELIMELER = {
     "model", "serial", "number", "seri", "numara", "no", "sn",
-    "name", "user", "kullanıcı", "kullanici", "adı", "ad", "soyad",
-    "soyadı", "isim", "tarih", "date", "departman", "department",
+    "name", "surname", "user", "kullanıcı", "kullanici", "adı", "ad",
+    "soyad", "soyadı", "soyisim", "isim", "tarih", "date", "departman", "department",
     "unvan", "title", "id", "tc", "kimlik", "telefon", "phone", "email",
 }
 
