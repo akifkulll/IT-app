@@ -126,8 +126,11 @@ def ismi_bul(metin: str) -> str | None:
                 aday2 = _adayi_temizle(sonraki)
                 if not aday2:
                     continue  # boş satırları atla
-                # İlk dolu satır geçerli isimse döndür; değilse bu etiketten vazgeç
-                return aday2 if _gecerli_isim(aday2) else None
+                if _gecerli_isim(aday2):
+                    return aday2
+                # İlk dolu alt satır isim değilse bu eşleşmeden vazgeç,
+                # ama diğer etiketleri/eşleşmeleri denemeye devam et.
+                break
     return None
 
 
