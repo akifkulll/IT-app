@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytesseract
 from pdf2image import convert_from_bytes
+from PIL import ImageFilter, ImageOps
 
 # PDF → görüntü dönüşümünde kullanılacak çözünürlük (dpi)
 DPI = 300
@@ -61,19 +62,38 @@ GECERSIZ_KELIMELER = {
 ISIM_BULUNAMADI = "isim_bulunamadi"
 
 
-def metni_cikar(pdf_bytes: bytes) -> str:
+def _on_isle(gorsel):
+    """OCR öncesi görüntü iyileştirme.
+
+    Soluk/renkli kutulardaki yazıların okunabilmesi için: gri tona çevir,
+    kontrastı otomatik aç, hafif keskinleştir. Tesseract bu hâliyle düşük
+    kontrastlı alanları çok daha iyi okur.
+    """
+    gorsel = gorsel.convert("L")  # gri ton
+    gorsel = ImageOps.autocontrast(gorsel, cutoff=2)  # kontrastı aç
+    gorsel = gorsel.filter(ImageFilter.SHARPEN)  # keskinleştir
+    return gorsel
+
+
+def metni_cikar(pdf_bytes: bytes, iyilestir: bool = False) -> str:
     """PDF baytlarını görüntüye çevirir ve OCR ile ham metni döndürür.
 
     Args:
         pdf_bytes: Yüklenen PDF dosyasının ham baytları.
+        iyilestir: True ise görüntü ön işlemden geçirilir ve tablo/kutu
+            düzenini daha iyi çözen OCR modu (--psm 6) kullanılır.
+            İlk okumada isim bulunamayan belgeler için ikinci şanstır.
 
     Returns:
         Tüm sayfaların OCR metni (sayfalar arasında boş satır ile).
     """
     sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI)
     metinler = []
+    config = "--psm 6" if iyilestir else ""
     for sayfa in sayfalar:
-        metin = pytesseract.image_to_string(sayfa, lang=OCR_DIL)
+        if iyilestir:
+            sayfa = _on_isle(sayfa)
+        metin = pytesseract.image_to_string(sayfa, lang=OCR_DIL, config=config)
         metinler.append(metin)
     return "\n\n".join(metinler)
 
@@ -245,8 +265,18 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
         {"ham_metin": str, "isim": str | None, "hata": str | None}
     """
     try:
+        # 1. deneme: normal OCR
         ham_metin = metni_cikar(pdf_bytes)
         isim = ismi_bul(ham_metin)
+
+        # 2. deneme: isim bulunamadıysa görüntüyü iyileştirip tablo
+        # modunda (--psm 6) tekrar oku — soluk/kutulu alanlar için
+        if isim is None:
+            ham_metin2 = metni_cikar(pdf_bytes, iyilestir=True)
+            isim = ismi_bul(ham_metin2)
+            if isim is not None:
+                ham_metin = ham_metin2  # başarılı okumayı göster
+
         return {"ham_metin": ham_metin, "isim": isim, "hata": None}
     except Exception as e:  # Bozuk bir belge tüm işlemi durdurmasın
         return {"ham_metin": "", "isim": None, "hata": str(e)}
