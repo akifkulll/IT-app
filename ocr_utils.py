@@ -92,10 +92,10 @@ _TR_HARITA = str.maketrans(
     }
 )
 
-# Başlık bölgesi: türü belirlemek için metnin ilk kaç dolu satırına
-# bakılacağı. Başlıklar en üsttedir; gövdedeki "Old Device Delivered"
-# gibi kelimeler bu sayede kapsam dışında kalır.
-BASLIK_SATIR_SAYISI = 5
+# 'delivery' anahtarı için tuzak kelime: gövdedeki "Old Device Delivered"
+# yanlışlıkla D vermesin. Bir kelime 'delivery'den çok 'delivered'a
+# benziyorsa D sayılmaz.
+_DELIVERY_TUZAK = "delivered"
 
 
 def _sadelestir(metin: str) -> str:
@@ -106,26 +106,30 @@ def _sadelestir(metin: str) -> str:
 def belge_kodu(metin: str) -> str | None:
     """OCR metnine göre belge türü kodunu döndürür (M/P/D/IT); yoksa None.
 
-    Başlık bölgesindeki kelimeleri anahtar kelimelerle BENZERLİK oranına
-    göre karşılaştırır (OCR bozulmalarına dayanıklı). Dosya adının sonuna
+    Metindeki kelimeleri anahtar kelimelerle BENZERLİK oranına göre
+    karşılaştırır (OCR bozulmalarına dayanıklı). Dosya adının sonuna
     '_<kod>' olarak eklenmek üzere kullanılır.
     """
-    # Yalnızca başlık bölgesi (ilk birkaç dolu satır)
-    dolu_satirlar = [s for s in metin.splitlines() if s.strip()]
-    baslik = " ".join(dolu_satirlar[:BASLIK_SATIR_SAYISI])
-
-    # Başlığı sadeleştirip harf gruplarına ayır
-    sade = _sadelestir(baslik)
+    sade = _sadelestir(metin)
     kelimeler = re.findall(r"[a-z]+", sade)
-    # "Pick up" gibi bölünmüş yazımlar için bitişik halini de hazırla
-    bitisik = "".join(kelimeler)
+    # "Pick up" gibi bölünmüş yazımlar için ilk satırların bitişik hali
+    ilk_satirlar = " ".join(sade.splitlines()[:8])
+    bitisik = "".join(re.findall(r"[a-z]+", ilk_satirlar))
 
     for anahtar, kod, esik in ANAHTAR_KODLARI:
         # 1) Tek tek kelimelerde benzerlik ara
         for kelime in kelimeler:
             oran = difflib.SequenceMatcher(None, kelime, anahtar).ratio()
-            if oran >= esik:
-                return kod
+            if oran < esik:
+                continue
+            # 'delivery' için: kelime 'delivered'a daha çok benziyorsa atla
+            if anahtar == "delivery":
+                tuzak_oran = difflib.SequenceMatcher(
+                    None, kelime, _DELIVERY_TUZAK
+                ).ratio()
+                if tuzak_oran >= oran:
+                    continue
+            return kod
         # 2) Bitişik metinde anahtar birebir geçiyorsa (Pick up -> pickup)
         if anahtar in bitisik:
             return kod
