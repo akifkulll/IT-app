@@ -48,6 +48,7 @@ GECERSIZ_KELIMELER = {
     "name", "surname", "user", "kullanıcı", "kullanici", "adı", "ad",
     "soyad", "soyadı", "soyisim", "isim", "tarih", "date", "departman", "department",
     "unvan", "title", "id", "tc", "kimlik", "telefon", "phone", "email",
+    "cwid",
 }
 
 # Bulunamayan isimler için kullanılacak yer tutucu
@@ -117,8 +118,10 @@ def _isim_ayikla(aday: str) -> str | None:
     # Makul isim uzunluğu: 1-5 kelime (paragraf/serbest metin yakalamayalım)
     if len(kelimeler) > 5:
         return None
-    isim = " ".join(kelimeler)
-    return isim if len(isim) >= 2 else None
+    # Tek kelimelik aday en az 3 harf olmalı (kod artıkları: 'AK' gibi)
+    if len(kelimeler) == 1 and len(kelimeler[0]) < 3:
+        return None
+    return " ".join(kelimeler)
 
 
 def ismi_bul(metin: str) -> str | None:
@@ -146,6 +149,23 @@ def ismi_bul(metin: str) -> str | None:
             # 2) Etiketin altındaki birkaç dolu satıra bak (kutu içi değer)
             bakilan = 0
             for sonraki in satirlar[i + 1:]:
+                # Başka bir alanın etiketiyle başlayan satırları atla
+                # ("CWID: A123", "Model: XPS" gibi) — o alanın değeri
+                # isim değildir
+                etiket_m = re.match(
+                    r"\s*([A-Za-zÇĞİÖŞÜçğıöşü]+)\s*[:=]", sonraki
+                )
+                # Rakam ağırlıklı satırlar da kimlik/kod değeridir (CWID,
+                # seri no vb.), isim olamaz — atla
+                harf = sum(c.isalpha() for c in sonraki)
+                rakam = sum(c.isdigit() for c in sonraki)
+                if (etiket_m and etiket_m.group(1).lower() in GECERSIZ_KELIMELER) or (
+                    rakam > 0 and rakam >= harf
+                ):
+                    bakilan += 1
+                    if bakilan >= ALT_SATIR_LIMITI:
+                        break
+                    continue
                 aday = _adayi_temizle(sonraki)
                 if not aday:
                     continue  # boş satırları atla
