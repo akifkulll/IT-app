@@ -68,13 +68,22 @@ ISIM_BULUNAMADI = "isim_bulunamadi"
 
 # Belge türüne göre dosya adının sonuna eklenecek kodlar.
 # Sıra önemlidir: ilk eşleşen kazanır.
-# \b (tam kelime sınırı) ile 'Delivery', gövdedeki 'Delivered' kelimesine
-# YANLIŞLIKLA eşleşmez.
+#
+# Notlar:
+# - \b (tam kelime sınırı) ile 'Delivery', gövdedeki 'Delivered' kelimesine
+#   yanlışlıkla eşleşmez.
+# - 'Delivery' için (?!\s*Form) ile, IT formunun BAŞLIĞINDAKİ
+#   "... Equipment Delivery Form" ifadesi D tetiklemez; yalnızca tür
+#   alanındaki gerçek "Delivery" değeri D verir.
+# - IT formu başlığı ('IT Ekipman ... / IT Equipment Delivery Form') hem
+#   Türkçe hem İngilizce yazımıyla ve OCR'ın 'IT' okuma hatalarından
+#   bağımsız olarak 'Ekipman Teslim' / 'Equipment Delivery' üzerinden
+#   yakalanır.
 BELGE_KODLARI = [
     (r"\bMobile\b", "M"),
     (r"\bPick\s*-?\s*up\b", "P"),
-    (r"\bDelivery\b", "D"),
-    (r"[İIı]T\s+Ekipman\s+Formu", "IT"),
+    (r"Ekipman\s+Teslim|Equipment\s+Delivery|[İIı1l]T\s+Ekipman|[İIı1l]T\s+Equipment", "IT"),
+    (r"(?<!Equipment )\bDelivery\b", "D"),
 ]
 
 
