@@ -1,0 +1,8 @@
+# Çıktı klasörü (kişisel veri içerebilir, depoya girmesin)
+cikti/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
