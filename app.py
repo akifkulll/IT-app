@@ -121,7 +121,7 @@ if sonuclar:
             ),
         },
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         key="isim_tablosu",
     )
 
@@ -166,7 +166,7 @@ if sonuclar:
                 )
 
         st.subheader("📊 Sonuç Raporu")
-        st.dataframe(pd.DataFrame(rapor), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rapor), hide_index=True, width="stretch")
 
         basarili = sum(1 for r in rapor if r["Durum"].startswith("✅"))
         st.success(f"{basarili}/{len(rapor)} dosya `cikti/` klasörüne kaydedildi.")

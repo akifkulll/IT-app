@@ -39,6 +39,46 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Kurulum (macOS)
+
+```bash
+# Homebrew ile sistem araçları (Türkçe dil paketi tesseract-lang içinde)
+brew install tesseract tesseract-lang poppler
+# Python bağımlılıkları
+pip3 install -r requirements.txt
+```
+
+## Kurulum (Windows)
+
+Windows'ta iki sistem programı (Tesseract ve Poppler) ayrıca gerekir.
+Uygulama bunları **PATH'e eklemeye gerek olmadan** şu yerlerden otomatik
+bulur: `POPPLER_PATH` / `TESSERACT_PATH` ortam değişkenleri, proje
+klasöründeki `poppler` / `tesseract` klasörleri, veya bilinen kurulum
+yolları.
+
+### 1. Poppler (PATH'siz, taşınabilir)
+- İndir: https://github.com/oschwartz10612/poppler-windows/releases
+- ZIP'i aç ve içindeki klasörü proje köküne **`poppler`** adıyla koy.
+  Sonuçta `poppler/Library/bin` yolu oluşmalı. Uygulama bunu kendi bulur.
+
+### 2. Tesseract (Türkçe dil paketiyle)
+- İndir: https://github.com/UB-Mannheim/tesseract/wiki
+- Kurulumda **"Additional language data" → Turkish** seçili olsun.
+- Varsayılan yere (`C:\Program Files\Tesseract-OCR`) kurulursa uygulama
+  otomatik bulur. (Kuramıyorsan taşınabilir kopyayı proje köküne
+  `tesseract` klasörü olarak koyabilirsin.)
+
+### 3. Python bağımlılıkları
+```powershell
+python -m pip install -r requirements.txt
+```
+
+### 4. Çalıştır
+`baslat.bat` dosyasına çift tıkla veya:
+```powershell
+python -m streamlit run app.py
+```
+
 ## Çalıştırma
 
 ```bash

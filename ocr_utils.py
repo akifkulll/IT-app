@@ -7,6 +7,7 @@ Tüm işlem tamamen offline çalışır (Tesseract + Poppler), bulut OCR kullan�
 
 import difflib
 import io
+import os
 import re
 import unicodedata
 from pathlib import Path
@@ -14,6 +15,70 @@ from pathlib import Path
 import pytesseract
 from pdf2image import convert_from_bytes
 from PIL import Image, ImageFilter, ImageOps
+
+# ---------------------------------------------------------------------------
+# Poppler ve Tesseract yollarını otomatik bul (özellikle Windows için).
+# Amaç: kullanıcı bu araçları PATH'e eklemek zorunda kalmadan,
+# ister sistemde kurulu ister proje klasöründe "portable" olarak dursun,
+# uygulama onları kendi bulsun.
+# ---------------------------------------------------------------------------
+_PROJE_KOK = Path(__file__).resolve().parent
+
+
+def _poppler_yolu() -> str | None:
+    """Poppler 'bin' klasörünü bulur; bulamazsa None (PATH'e güvenilir).
+
+    Sırayla: POPPLER_PATH ortam değişkeni -> proje içindeki poppler klasörü.
+    """
+    ortam = os.environ.get("POPPLER_PATH")
+    if ortam and Path(ortam).is_dir():
+        return ortam
+    # Proje klasöründe poppler ara (Windows portable dağıtımı bin içerir)
+    desenler = [
+        "poppler*/Library/bin", "poppler*/bin",
+        "poppler/Library/bin", "poppler/bin",
+    ]
+    for desen in desenler:
+        for aday in _PROJE_KOK.glob(desen):
+            if aday.is_dir():
+                return str(aday)
+    return None  # Sistemde kuruluysa PATH üzerinden bulunur
+
+
+def _tesseract_ayarla() -> str | None:
+    """Tesseract çalıştırılabilir dosyasını bulup pytesseract'a bildirir.
+
+    Sistemde kurulu değilse (Windows) bilinen yolları ve proje içindeki
+    portable kopyayı dener. Bulamazsa PATH'e güvenilir.
+    """
+    adaylar = []
+    ortam = os.environ.get("TESSERACT_PATH")
+    if ortam:
+        adaylar.append(ortam)
+    # Proje içindeki portable kopya
+    adaylar += [str(p) for p in _PROJE_KOK.glob("tesseract*/tesseract.exe")]
+    # Windows'ta bilinen kurulum yerleri
+    adaylar += [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        os.path.expanduser(r"~\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"),
+    ]
+    for aday in adaylar:
+        if aday and Path(aday).is_file():
+            pytesseract.pytesseract.tesseract_cmd = aday
+            return aday
+    return None  # Sistemde kuruluysa PATH üzerinden bulunur
+
+
+# Modül yüklenirken bir kez tespit et
+POPPLER_YOLU = _poppler_yolu()
+_tesseract_ayarla()
+
+
+def _pdf_goruntule(pdf_bytes: bytes, dpi: int):
+    """PDF baytlarını, bulunan Poppler yoluyla görüntülere çevirir."""
+    return convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_YOLU)
+
 
 # PDF → görüntü dönüşümünde kullanılacak çözünürlük (dpi)
 DPI = 300
@@ -182,7 +247,7 @@ def metni_cikar(pdf_bytes: bytes, iyilestir: bool = False) -> str:
     Returns:
         Tüm sayfaların OCR metni (sayfalar arasında boş satır ile).
     """
-    sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI)
+    sayfalar = _pdf_goruntule(pdf_bytes, DPI)
     if iyilestir:
         sayfalar = [_on_isle(s) for s in sayfalar]
         return _sayfalari_oku(sayfalar, "--psm 6")
@@ -362,7 +427,7 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
     """
     try:
         # 1. deneme: normal OCR
-        sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI)
+        sayfalar = _pdf_goruntule(pdf_bytes, DPI)
         ham_metin = _sayfalari_oku(sayfalar)
         isim = ismi_bul(ham_metin)
 
@@ -372,7 +437,7 @@ def pdf_isle(pdf_bytes: bytes) -> dict:
         # ilk isim bulan varyant kazanır.
         # (buyut_orani, binarize, psm_modu):
         if isim is None:
-            yuksek_sayfalar = convert_from_bytes(pdf_bytes, dpi=DPI_YUKSEK)
+            yuksek_sayfalar = _pdf_goruntule(pdf_bytes, DPI_YUKSEK)
             varyantlar = [
                 (1.0, True, "--psm 6"),    # binarize + tek metin bloğu
                 (1.5, True, "--psm 6"),    # 1.5x + binarize
