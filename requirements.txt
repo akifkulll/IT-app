@@ -1,4 +1,5 @@
-streamlit>=1.32
+# width="stretch" parametresi yeni Streamlit sürümlerinde var
+streamlit>=1.49
 pytesseract>=0.3.10
 pdf2image>=1.17
 pandas>=2.0
